@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum TestStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AnswerOption {
+  A
+  B
+  C
+  D
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String?
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(USER)
+  image        String?
+  emailVerified DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  attempts     Attempt[]
+  payments     Payment[]
+  testsCreated Test[]    @relation("TestCreator")
+
+  @@index([role])
+}
+
+model Test {
+  id                String      @id @default(cuid())
+  title             String
+  slug              String      @unique
+  description       String      @db.Text
+  durationInMinutes Int
+  questionCount     Int         @default(0)
+  isPremium         Boolean     @default(false)
+  priceInPaise      Int?
+  status            TestStatus  @default(DRAFT)
+  publishedAt       DateTime?
+  createdById       String
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  attempts          Attempt[]
+  creator           User        @relation("TestCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  payments          Payment[]
+  questions         Question[]
+
+  @@index([status, publishedAt])
+  @@index([isPremium, status])
+  @@index([createdById])
+}
+
+model Question {
+  id            String       @id @default(cuid())
+  testId        String
+  order         Int
+  text          String       @db.Text
+  optionA       String
+  optionB       String
+  optionC       String
+  optionD       String
+  correctAnswer AnswerOption
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  answers       AttemptAnswer[]
+  test          Test         @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, order])
+  @@index([testId])
+}
+
+model Attempt {
+  id                  String         @id @default(cuid())
+  userId              String
+  testId              String
+  status              AttemptStatus  @default(IN_PROGRESS)
+  score               Int            @default(0)
+  maxScore            Int
+  correctCount        Int            @default(0)
+  wrongCount          Int            @default(0)
+  unansweredCount     Int            @default(0)
+  questionCount       Int
+  questionSnapshot    Json
+  startedAt           DateTime       @default(now())
+  expiresAt           DateTime
+  submittedAt         DateTime?
+  durationTakenSeconds Int?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  answers             AttemptAnswer[]
+  test                Test           @relation(fields: [testId], references: [id], onDelete: Cascade)
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([testId, submittedAt(sort: Desc)])
+  @@index([status, expiresAt])
+}
+
+model AttemptAnswer {
+  id             String        @id @default(cuid())
+  attemptId      String
+  questionId     String
+  selectedOption AnswerOption?
+  isCorrect      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  attempt        Attempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question       Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  userId            String
+  testId            String
+  amountInPaise     Int
+  currency          String        @default("INR")
+  status            PaymentStatus @default(CREATED)
+  receipt           String?
+  razorpayOrderId   String        @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+  paidAt            DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  test              Test          @relation(fields: [testId], references: [id], onDelete: Cascade)
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([testId, status])
+  @@index([userId, testId, status])
+}
